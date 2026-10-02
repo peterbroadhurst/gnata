@@ -657,8 +657,8 @@ func TestConsArrayPathFilter(t *testing.T) {
 	}
 }
 
-// decimalCase is run with WithDecimalPrecision(78) through Eval, EvalBytes and
-// StreamEvaluator. want is the JSON encoding of the result, so json.Number
+// decimalCase is run with WithDecimalPrecision(78) through Eval, EvalBytes,
+// EvalMap and StreamEvaluator. want is the JSON encoding of the result, so json.Number
 // precision is checked exactly.
 type decimalCase struct {
 	desc    string
@@ -686,6 +686,10 @@ func runDecimalCases(t *testing.T, cases []decimalCase) {
 			if err := dec.Decode(&data); err != nil {
 				t.Fatalf("decode: %v", err)
 			}
+			var mapData map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(payload), &mapData); err != nil {
+				t.Fatalf("decode map: %v", err)
+			}
 			precs := []int{78}
 			if tC.f64ok {
 				precs = append(precs, 0)
@@ -697,11 +701,12 @@ func runDecimalCases(t *testing.T, cases []decimalCase) {
 				}
 				viaEval, evalErr := e.Eval(context.Background(), data)
 				viaBytes, bytesErr := e.EvalBytes(context.Background(), json.RawMessage(payload))
+				viaMap, mapErr := e.EvalMap(context.Background(), mapData)
 				viaStream, streamErr := gnata.NewStreamEvaluator([]*gnata.Expression{e}).EvalOne(context.Background(), json.RawMessage(payload), "k", 0)
 				for _, r := range []struct {
 					got any
 					err error
-				}{{viaEval, evalErr}, {viaBytes, bytesErr}, {viaStream, streamErr}} {
+				}{{viaEval, evalErr}, {viaBytes, bytesErr}, {viaMap, mapErr}, {viaStream, streamErr}} {
 					if tC.code != "" {
 						if r.err == nil || !strings.Contains(r.err.Error(), tC.code) {
 							t.Fatalf("precision %d: expected error %s, got %v (%v)", prec, tC.code, r.got, r.err)
@@ -773,10 +778,13 @@ func TestDecimalLiterals(t *testing.T) {
 func TestDecimalPaths(t *testing.T) {
 	//nolint:lll // large literals
 	runDecimalCases(t, []decimalCase{
-		{desc: "path_decimal", expr: "a", payload: `{"a":9007199254740993.5}`, want: `9007199254740993.5`},                             // float64: 2^53 rounding
-		{desc: "path_uint256", expr: "a.b", payload: `{"a":{"b":` + u256 + `}}`, want: u256},                                           // float64: ~16 digits
-		{desc: "path_through_array", expr: "a.b", payload: `{"a":[{"b":9007199254740993.5},{"b":1}]}`, want: `[9007199254740993.5,1]`}, // float64: 2^53 rounding
-		{desc: "path_eq_beyond_2^53", expr: "a = 9007199254740992", payload: `{"a":9007199254740993}`, want: `false`},                  // float64: 2^53 rounding
+		{desc: "path_decimal", expr: "a", payload: `{"a":9007199254740993.5}`, want: `9007199254740993.5`},                                                // float64: 2^53 rounding
+		{desc: "path_uint256", expr: "a.b", payload: `{"a":{"b":` + u256 + `}}`, want: u256},                                                              // float64: ~16 digits
+		{desc: "path_through_array", expr: "a.b", payload: `{"a":[{"b":9007199254740993.5},{"b":1}]}`, want: `[9007199254740993.5,1]`},                    // float64: 2^53 rounding
+		{desc: "path_through_arrays", expr: "a.b.c", payload: `{"a":[{"b":[{"c":0.1},{"c":` + u256 + `}]},{"b":{"c":1}}]}`, want: `[0.1,` + u256 + `,1]`}, // float64: ~16 digits
+		{desc: "path_array_of_objects", expr: "a.b", payload: `{"a":[{"b":{"c":` + u256 + `}},{"b":[1.5]}]}`, want: `[{"c":` + u256 + `},1.5]`},           // float64: ~16 digits
+		{desc: "path_array_mixed", expr: "a.b", payload: `{"a":[{"b":"x"},{"b":null},{"b":true},{"b":2}]}`, want: `["x",null,true,2]`, f64ok: true},
+		{desc: "path_eq_beyond_2^53", expr: "a = 9007199254740992", payload: `{"a":9007199254740993}`, want: `false`}, // float64: 2^53 rounding
 		{desc: "path_eq_string", expr: `a = "x"`, payload: `{"a":"x"}`, want: `true`, f64ok: true},
 		{desc: "path_distinct", expr: "$distinct(a)", payload: `{"a":[9007199254740993.5,9007199254740993.5]}`, want: `9007199254740993.5`}, // float64: 2^53 rounding
 		{desc: "path_string", expr: "$string(a)", payload: `{"a":9007199254740993}`, want: `"9007199254740993"`, f64ok: true},

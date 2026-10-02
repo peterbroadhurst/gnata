@@ -318,12 +318,10 @@ func (e *Expression) tryFastPathBytes(data json.RawMessage, mapData map[string]j
 		var v any
 		var ok bool
 		switch {
-		case e.decimalPrecision() > 0:
-			// The walker returns numbers as float64, losing the decimal precision.
 		case data != nil:
-			v, ok = walkPureStepsBytes(e.pathSteps, data)
+			v, ok = walkPureStepsBytes(e.pathSteps, data, e.decimalPrecision() > 0)
 		case mapData != nil:
-			v, ok = walkPureStepsMapBytes(e.pathSteps, mapData)
+			v, ok = walkPureStepsMapBytes(e.pathSteps, mapData, e.decimalPrecision() > 0)
 		}
 		if ok {
 			return v, true, nil
@@ -585,10 +583,15 @@ func (e *Expression) decimalPrecision() int {
 	return e.guardrails.decimalPrecision
 }
 
-// fastValue converts a pure-path result. With decimal precision enabled, numbers
-// stay json.Number so they keep full precision, as in the full evaluator.
+// fastValue converts a pure-path result.
 func (e *Expression) fastValue(r *gjson.Result) any {
-	if r.Type == gjson.Number && e.decimalPrecision() > 0 {
+	return gjsonValue(r, e.decimalPrecision() > 0)
+}
+
+// gjsonValue is gjsonValueToAny, except that with useNumber (decimal precision)
+// numbers stay json.Number so they keep full precision, as in the full evaluator.
+func gjsonValue(r *gjson.Result, useNumber bool) any {
+	if r.Type == gjson.Number && useNumber {
 		return json.Number(r.Raw)
 	}
 	return gjsonValueToAny(r)
