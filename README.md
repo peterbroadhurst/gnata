@@ -327,7 +327,13 @@ expr, err := gnata.Compile(`$sum(items.amount) = total`,
 )
 ```
 
-Literals, arithmetic, comparisons, sorting and the numeric builtins (`$number`, `$sum`, `$round`, ...) then return `json.Number` results such as `10 / 4` → `2.5`. Magnitudes keep float64's range and errors, and all work is bounded by the precision, so it is safe with untrusted input. `$power`, `$sqrt`, the formatting and date/time functions, and operations on two float64 values (such as `$count` results) stay float64. For `Eval`, decode input with `gnata.DecodeJSON` to keep it precise. Results intentionally differ from jsonata-js: for example `0.1 + 0.2 = 0.3` is `true`.
+Number literals, arithmetic, comparisons, sorting and the numeric builtins (`$number`, `$sum`, `$round`, ...) then work in decimal, and their numeric results are `json.Number` values with up to that many digits. `$formatNumber` is exact too, so `$formatNumber(1.015, '0.00')` gives `"1.02"` rather than float64's `"1.01"`. So is `$formatBase`, e.g. a uint256 in hex with `$formatBase(value, 16)`, and `$power` with a whole-number exponent.
+
+These still use float64:
+
+- `$power` with a fractional exponent, and `$sqrt`.
+- `$formatInteger` and `$parseInteger`, which are exact only up to 2^53.
+- The date/time functions. Millisecond timestamps fit in float64 exactly.
 
 ## Known Behavioral Differences from jsonata-js
 

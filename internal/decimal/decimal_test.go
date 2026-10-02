@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/recolabs/gnata/internal/decimal"
@@ -236,6 +237,54 @@ func TestIntegers(t *testing.T) {
 		got, ok := parse(t, c.in, 20).Int64()
 		if ok != c.ok || ok && got != c.want {
 			t.Errorf("Int64(%s) = %d, %v, want %d, %v", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestFixed(t *testing.T) {
+	for _, c := range []struct {
+		in     string
+		places int
+		want   string
+	}{
+		{"1.5", 3, "1.500"},
+		{"0.125", 2, "0.12"},
+		{"0.135", 2, "0.14"},
+		{"-2.5", 0, "2"},
+		{"123", 0, "123"},
+		{"0", 2, "0.00"},
+		{"0.004", 2, "0.00"},
+		{"0.006", 2, "0.01"},
+		{"1e-5", 7, "0.0000100"},
+		{"1e20", 1, "100000000000000000000.0"},
+		{"12345678901234567.89", 2, "12345678901234570.00"},
+	} {
+		got, ok := parse(t, c.in, p16).Fixed(c.places, p16)
+		if !ok || got != c.want {
+			t.Errorf("Fixed(%s, %d) = %s, %v, want %s", c.in, c.places, got, ok, c.want)
+		}
+	}
+	if got, ok := parse(t, strings.Repeat("9", 309)+".5", 1000).Fixed(0, 1000); ok {
+		t.Errorf("Fixed(1e309 - 0.5, 0) = %s, want overflow", got)
+	}
+	for _, c := range []struct {
+		in     string
+		k, adj int
+		want   string
+	}{
+		{"123", -2, 2, "1.23"},
+		{"0.05", 2, -2, "5"},
+		{"0", 400, 0, "0"},
+		{"1e308", 1, 308, "!"},
+		{"1e-324", -1, -324, "!"},
+	} {
+		d := parse(t, c.in, p16)
+		if got := d.Adjusted(); got != c.adj {
+			t.Errorf("Adjusted(%s) = %d, want %d", c.in, got, c.adj)
+		}
+		s, ok := d.Shift(c.k)
+		if got := str(s, ok, p16); got != c.want {
+			t.Errorf("Shift(%s, %d) = %s, want %s", c.in, c.k, got, c.want)
 		}
 	}
 }

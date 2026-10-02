@@ -34,12 +34,9 @@ var builtinFuncs = []struct {
 	{"encodeUrlComponent", fnEncodeURLComponent},
 	{"decodeUrl", fnDecodeURL},
 	{"decodeUrlComponent", fnDecodeURLComponent},
-	{"formatNumber", fnFormatNumber},
-	{"formatBase", fnFormatBase},
 	{"formatInteger", fnFormatInteger},
 	{"parseInteger", fnParseInteger},
 	// ── Numeric ───────────────────────────────────────────────────────────────
-	{"power", fnPower},
 	{"sqrt", fnSqrt},
 	{"random", fnRandom},
 	// ── Array ─────────────────────────────────────────────────────────────────
@@ -85,6 +82,9 @@ var decimalFuncs = []struct {
 	{"max", fnMax, decMax},
 	{"min", fnMin, decMin},
 	{"average", fnAverage, decAverage},
+	{"formatNumber", fnFormatNumber, decFormatNumber},
+	{"formatBase", fnFormatBase, decFormatBase},
+	{"power", fnPower, decPower},
 }
 
 func newSignedBuiltin(fn func([]any, any) (any, error), sig string) *evaluator.SignedBuiltin {

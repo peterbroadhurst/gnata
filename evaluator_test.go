@@ -848,6 +848,49 @@ func TestDecimalFunctions(t *testing.T) {
 		{desc: "max_empty", expr: "$max([])", want: `null`, f64ok: true},
 		{desc: "max_floats", expr: `$max([$length("a"), $length("ab")])`, want: `2`, f64ok: true},
 		{desc: "max_string", expr: `$max([1, "a"])`, code: "T0412", f64ok: true},
+		{desc: "format_number_big", expr: `$formatNumber(12345678901234567.89, "#,##0.00")`, want: `"12,345,678,901,234,567.89"`},                                                                                            // float64: ~16 digits
+		{desc: "format_number_uint256", expr: `$formatNumber(a, "#,##0")`, payload: `{"a":` + u256 + `}`, want: `"115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457,584,007,913,129,639,935"`}, // float64: ~16 digits
+		{desc: "format_number_decimal_tie", expr: `$formatNumber(2.675, "0.00")`, want: `"2.68"`},                                                                                                                            // float64: binary fractions inexact
+		{desc: "format_number_half_even", expr: `$formatNumber(0.125, "0.00")`, want: `"0.12"`, f64ok: true},
+		{desc: "format_number_integer", expr: `$formatNumber(2.5, "0")`, want: `"2"`, f64ok: true},
+		{desc: "format_number_negative_picture", expr: `$formatNumber(-1234.5, "#,##0.0;(#,##0.0)")`, want: `"(1,234.5)"`, f64ok: true},
+		{desc: "format_number_percent", expr: `$formatNumber(0.1234567890123456789, "0.0000000000000000000%")`, want: `"12.3456789012345678900%"`}, // float64: ~16 digits
+		{desc: "format_number_per_mille", expr: `$formatNumber(0.0125, "0.0‰")`, want: `"12.5‰"`, f64ok: true},
+		{desc: "format_number_zero_digit", expr: `$formatNumber(1.5, "##٠.٠٠", {"zero-digit": "٠"})`, want: `"١.٥٠"`, f64ok: true},
+		{desc: "format_number_exponent", expr: `$formatNumber(1.5, "0.0e0")`, want: `"1.5e0"`, f64ok: true},
+		{desc: "format_number_exponent_big", expr: `$formatNumber(12345678901234567.89, "0.0000000000000000000e0")`, want: `"1.2345678901234567890e16"`},                     // float64: ~16 digits
+		{desc: "format_number_exponent_uint256", expr: `$formatNumber(a, "0.000000000000000000000e0")`, payload: `{"a":` + u256 + `}`, want: `"1.157920892373161954236e77"`}, // float64: ~16 digits
+		{desc: "format_number_exponent_tie", expr: `$formatNumber(1.25, "0.0e0")`, want: `"1.2e0"`},                                                                          // float64: rounds half away from zero
+		{desc: "format_number_exponent_carry", expr: `$formatNumber(9.96, "0.0e0")`, want: `"1.0e1"`, f64ok: true},
+		{desc: "format_number_exponent_fraction", expr: `$formatNumber(1234, ".00e0")`, want: `".12e4"`, f64ok: true},
+		{desc: "format_number_exponent_int_digits", expr: `$formatNumber(12345, "00.0e0")`, want: `"12.3e3"`, f64ok: true},
+		{desc: "format_number_exponent_negative", expr: `$formatNumber(-0.00015, "0.0e00")`, want: `"-1.5e-04"`, f64ok: true},
+		{desc: "format_number_exponent_tiny", expr: `$formatNumber(1.5e-300, "0.0e0")`, want: `"1.5e-300"`, f64ok: true},
+		{desc: "format_number_exponent_zero", expr: `$formatNumber(0, "0.0e0")`, want: `"0.0e0"`, f64ok: true},
+		{desc: "format_number_exponent_range", expr: `$substring($formatNumber(1e10, p), 0, 4)`, payload: `{"p":"` + strings.Repeat("0", 309) + `e0"}`, want: `"0999"`, f64ok: true},
+		{desc: "format_number_scale_overflow", expr: `$formatNumber(a, "0‰")`, payload: `{"a":9e307}`, want: `"+Inf‰"`, f64ok: true},
+		{desc: "format_number_long_picture", expr: `$formatNumber(1.5, p)`, payload: `{"p":"0.` + strings.Repeat("0", 10_001) + `"}`, want: `"1.5` + strings.Repeat("0", 10_000) + `"`, f64ok: true},
+		{desc: "format_number_picture_number", expr: `$formatNumber(1.5, 1)`, code: "T0410", f64ok: true},
+		{desc: "format_number_no_picture", expr: `$formatNumber(a)`, payload: `{"a":1.5}`, code: "D3006", f64ok: true},
+		{desc: "format_number_bad_negative_picture", expr: `$formatNumber(1.5, "0;0.0.0")`, code: "D3081", f64ok: true},
+		{desc: "format_number_two_separators", expr: `$formatNumber(1.5, "#;#;#")`, code: "D3080", f64ok: true},
+		{desc: "format_base_uint256", expr: `$formatBase(a, 16)`, payload: `{"a":` + u256 + `}`, want: `"` + strings.Repeat("f", 64) + `"`}, // float64: int64 overflow
+		{desc: "format_base_beyond_2^53", expr: `$formatBase(9007199254740993, 2)`, want: `"1` + strings.Repeat("0", 52) + `1"`},            // float64: 2^53 rounding
+		{desc: "format_base_half_even", expr: `$formatBase(2.5) & $formatBase(-2.5)`, want: `"2-2"`},                                        // float64: rounds half away from zero
+		{desc: "format_base_negative", expr: `$formatBase(-255, 16)`, want: `"-ff"`, f64ok: true},
+		{desc: "format_base_default", expr: `$formatBase(a)`, payload: `{"a":100}`, want: `"100"`, f64ok: true},
+		{desc: "format_base_fraction_base", expr: `$formatBase(255, 16.9)`, want: `"ff"`, f64ok: true},
+		{desc: "format_base_bad_base", expr: `$formatBase(1, 37)`, code: "D3100", f64ok: true},
+		{desc: "format_base_string_base", expr: `$formatBase(1, "2")`, code: "T0410", f64ok: true},
+		{desc: "power_2^100", expr: `$power(2, 100)`, want: `1267650600228229401496703205376`}, // float64: ~16 digits
+		{desc: "power_decimal", expr: `$power(1.1, 2)`, want: `1.21`},                          // float64: binary fractions inexact
+		{desc: "power_matches_operator", expr: `$power(a, 3) = a ** 3`, payload: `{"a":9007199254740993}`, want: `true`, f64ok: true},
+		{desc: "power_negative_exponent", expr: `$power(2, -2)`, want: `0.25`, f64ok: true},
+		{desc: "power_fractional_exponent", expr: `$power(4, 0.5)`, want: `2`, f64ok: true},
+		{desc: "power_zero_negative", expr: `$power(0, -1)`, code: "D3061", f64ok: true},
+		{desc: "power_overflow", expr: `$power(10, 400)`, code: "D3061", f64ok: true},
+		{desc: "power_one_argument", expr: `$power(2)`, code: "T0410", f64ok: true},
+		{desc: "power_string_exponent", expr: `$power(2, "2")`, code: "T0410", f64ok: true},
 		{desc: "flatten_depth_string", expr: `$flatten([1], "x")`, code: "T0410", f64ok: true},
 		{desc: "match_limit_string", expr: `$match("a", /a/, "x")`, code: "T0410", f64ok: true},
 	})

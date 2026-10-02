@@ -31,6 +31,7 @@ import (
 	"math"
 	"math/big"
 	"strconv"
+	"strings"
 )
 
 // MinPrecision and MaxPrecision bound the significant digits accepted by WithDecimalPrecision.
@@ -607,4 +608,45 @@ func (d Decimal) RoundPlaces(places, prec int) (Decimal, bool) {
 	default:
 		return d.drop(k, false).round(prec, false)
 	}
+}
+
+// Adjusted returns the exponent of the most significant digit of d, e.g. 2 for
+// 123, and 0 for zero.
+func (d Decimal) Adjusted() int {
+	if d.Sign() == 0 {
+		return 0
+	}
+	return d.adjusted()
+}
+
+// Shift returns d × 10^k exactly. ok is false if the result is outside the
+// exponent range.
+func (d Decimal) Shift(k int) (Decimal, bool) {
+	if d.Sign() == 0 {
+		return Decimal{}, true
+	}
+	d.exp += k
+	if adj := d.adjusted(); adj > maxExp || adj < minExp {
+		return Decimal{}, false
+	}
+	return d, true
+}
+
+// Fixed returns |d| rounded half to even to places decimal places, in plain
+// digits with exactly places fraction digits, as strconv.FormatFloat does with
+// 'f'. places must be non-negative and bounded by the caller.
+func (d Decimal) Fixed(places, prec int) (string, bool) {
+	r, ok := d.Abs().RoundPlaces(places, prec)
+	if !ok {
+		return "", false
+	}
+	ds := r.coeff().String() + strings.Repeat("0", max(r.exp, 0))
+	frac := max(-r.exp, 0)
+	if len(ds) <= frac {
+		ds = strings.Repeat("0", frac-len(ds)+1) + ds
+	}
+	if places == 0 {
+		return ds, true
+	}
+	return ds[:len(ds)-frac] + "." + ds[len(ds)-frac:] + strings.Repeat("0", places-frac), true
 }

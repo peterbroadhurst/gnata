@@ -71,7 +71,7 @@ Dispatch-map of `funcFastHandlers` maps each `FuncFastKind` to a standalone hand
 
 ### Decimal Precision (internal/decimal/)
 
-Opt-in via `WithDecimalPrecision(digits)`, read with `env.DecimalPrecision()` (0 = off). Operators, comparisons and numeric builtins compute in `decimal.Decimal`, with values staying `float64 | json.Number`; work is bounded by the precision, and anything out of range returns `ok=false` so the unchanged float64 path runs.
+Opt-in via `WithDecimalPrecision(digits)`, read with `env.DecimalPrecision()` (0 = off). Operators, comparisons, numeric builtins (including `$power` with whole-number exponents), `$formatNumber` and `$formatBase` compute in `decimal.Decimal`, with values staying `float64 | json.Number`; work is bounded by the precision, and anything out of range returns `ok=false` so the unchanged float64 path runs.
 
 ### Key Types
 

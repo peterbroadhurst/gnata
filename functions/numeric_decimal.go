@@ -184,3 +184,108 @@ func decExtreme(args []any, prec, want int) (any, bool) {
 func decMax(args []any, _ any, prec int) (any, bool) { return decExtreme(args, prec, 1) }
 
 func decMin(args []any, _ any, prec int) (any, bool) { return decExtreme(args, prec, -1) }
+
+// decFormatNumber formats exactly, leaving any error to the float64 builtin.
+func decFormatNumber(args []any, _ any, prec int) (any, bool) {
+	d, ok := decArg(args, prec)
+	if !ok || len(args) < 2 {
+		return nil, false
+	}
+	picture, ok := args[1].(string)
+	if !ok {
+		return nil, false
+	}
+	var sp subPicture
+	fc, err := numberPicture(&sp, picture, formatNumberOptions(args), d.Sign() < 0)
+	if err != nil || sp.intMandatory+sp.fracMandatory+sp.fracOptional+sp.intOptional > maxRoundPlaces {
+		return nil, false
+	}
+	if sp.scale > 0 {
+		if d, ok = d.Mul(decimal.NewInt([]int64{100, 1000}[sp.scale-1]), prec); !ok {
+			return nil, false
+		}
+	}
+	var result string
+	if sp.expMandatory > 0 {
+		result, ok = decFormatExponent(d, &sp, fc, prec)
+	} else {
+		result, ok = d.Fixed(sp.fracMandatory+sp.fracOptional, prec)
+		result = formatFixed(result, &sp, fc)
+	}
+	if !ok {
+		return nil, false
+	}
+	return sp.prefix + applyDigitFamily(result, fc.zeroDigit) + sp.suffix, true
+}
+
+// decFormatExponent is formatWithExponent with an exact mantissa, rounded half
+// to even.
+func decFormatExponent(d decimal.Decimal, sp *subPicture, fc fmtChars, prec int) (string, bool) {
+	fracSig := expFracDigits(sp)
+	exp := 0
+	if d.Sign() != 0 {
+		exp = d.Adjusted() + 1 - sp.intMandatory // mantissa below 10^N, or 1 when N is 0
+	}
+	m, ok := d.Shift(-exp)
+	if ok {
+		m, ok = m.RoundPlaces(fracSig, prec)
+	}
+	limit, limitOK := decimal.NewInt(1).Shift(sp.intMandatory)
+	if !ok || !limitOK {
+		return "", false
+	}
+	if m.Abs().Cmp(limit) >= 0 { // rounding carried, e.g. 9.96 → 10.0
+		m, _ = m.Shift(-1) // exact, as m is at least 1
+		exp++
+	}
+	s, ok := m.Fixed(fracSig, prec)
+	return formatExponent(s, exp, sp, fc), ok
+}
+
+// decFormatBase formats exactly, rounding half to even as jsonata-js does, and
+// leaving any error to the float64 builtin.
+func decFormatBase(args []any, _ any, prec int) (any, bool) {
+	d, ok := decArg(args, prec)
+	if !ok {
+		return nil, false
+	}
+	base := 10
+	if len(args) >= 2 && args[1] != nil {
+		bf, ok := evaluator.ToFloat64(args[1])
+		if !ok {
+			return nil, false
+		}
+		base = int(bf)
+	}
+	if base < 2 || base > 36 {
+		return nil, false
+	}
+	s, ok := d.Fixed(0, prec)
+	if !ok {
+		return nil, false
+	}
+	n, _ := new(big.Int).SetString(s, 10)
+	if d.Sign() < 0 {
+		n.Neg(n)
+	}
+	return n.Text(base), true
+}
+
+// decPower handles whole-number exponents as the ** operator does, leaving
+// fractional exponents and any error to the float64 builtin.
+func decPower(args []any, _ any, prec int) (any, bool) {
+	x, ok := decArg(args, prec)
+	if !ok || len(args) < 2 {
+		return nil, false
+	}
+	y, ok := decimal.FromValue(args[1], prec)
+	if !ok {
+		return nil, false
+	}
+	n, ok := y.Int64()
+	if !ok {
+		return nil, false
+	}
+	z, ok := x.Pow(n, prec)
+	return z.Value(prec), ok
+}
