@@ -317,6 +317,18 @@ expr, err := gnata.Compile(userExpr,
 
 All three are opt-in; without them gnata keeps its existing defaults (100-deep call stack → `U1001`, no timeout beyond the caller's `context.Context`, and the built-in 10,000,000-element hard caps on the range operator and `$append`). `WithSequence` bounds every major sequence-growth path: the range operator, `$append`, `$map`, `$filter`, `$each`, wildcard (`*`), and descendant (`**`). Use guardrails when evaluating expressions from an untrusted source.
 
+### Decimal Precision
+
+By default gnata computes and compares numbers in float64, so values beyond 2^53 and decimals such as `0.1 + 0.2` are rounded. `WithDecimalPrecision` opts in to decimal floating point, rounded half to even to a given number of significant digits:
+
+```go
+expr, err := gnata.Compile(`$sum(items.amount) = total`,
+    gnata.WithDecimalPrecision(78), // 16–1000 digits; 78 covers uint256
+)
+```
+
+Literals, arithmetic, comparisons, sorting and the numeric builtins (`$number`, `$sum`, `$round`, ...) then return `json.Number` results such as `10 / 4` → `2.5`. Magnitudes keep float64's range and errors, and all work is bounded by the precision, so it is safe with untrusted input. `$power`, `$sqrt`, the formatting and date/time functions, and operations on two float64 values (such as `$count` results) stay float64. For `Eval`, decode input with `gnata.DecodeJSON` to keep it precise. Results intentionally differ from jsonata-js: for example `0.1 + 0.2 = 0.3` is `true`.
+
 ## Known Behavioral Differences from jsonata-js
 
 gnata targets exact parity with the JSONata reference implementation ([jsonata-js](https://github.com/jsonata-js/jsonata)). The differences below stem from platform differences between Go and JavaScript, not implementation bugs. In every case gnata's behavior is spec-correct or more correct than jsonata-js.
@@ -352,6 +364,7 @@ gnata/
 ├── bounded_cache.go             # Lock-free FIFO ring-buffer plan cache
 ├── deep_equal.go                # JSONata-compatible deep equality
 ├── internal/
+│   ├── decimal/                 # Decimal floating point for WithDecimalPrecision
 │   ├── lexer/                   # Tokenizer (all JSONata 2.x token types)
 │   ├── parser/                  # Pratt parser, AST, processAST, fast-path analysis
 │   └── evaluator/               # Core eval dispatch, environment, OrderedMap, signatures
@@ -371,6 +384,7 @@ gnata/
 │   ├── string_format_number.go  # $formatNumber (XSLT 3.0 picture strings)
 │   ├── string_format_integer.go # $formatInteger, $formatBase, $parseInteger
 │   ├── numeric_funcs.go         # $sum, $round, $power, etc.
+│   ├── numeric_decimal.go       # Decimal variants used under WithDecimalPrecision
 │   ├── array_funcs.go           # $sort, $distinct, $flatten, etc.
 │   ├── object_funcs.go          # $keys, $values, $merge, $sift, $each
 │   ├── hof_funcs.go             # $map, $filter, $reduce, $single

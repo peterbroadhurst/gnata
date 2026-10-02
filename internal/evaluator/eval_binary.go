@@ -119,6 +119,11 @@ func evalBinary(node *parser.Node, input any, env *Environment) (any, error) { /
 		if right == nil {
 			return nil, nil
 		}
+		if prec := env.DecimalPrecision(); prec > 0 {
+			if res, ok := DecimalArith(left, right, op, prec); ok {
+				return res, nil
+			}
+		}
 		l, _ := ToFloat64(left)
 		r, _ := ToFloat64(right)
 		return evalArithFloat64(l, r, op)
@@ -134,29 +139,24 @@ func evalBinary(node *parser.Node, input any, env *Environment) (any, error) { /
 		}
 		return ls + rs, nil
 
-	case "=":
+	case "=", "!=":
 		if left == nil || right == nil {
 			return false, nil
 		}
-		return DeepEqual(left, right), nil
-
-	case "!=":
-		if left == nil || right == nil {
-			return false, nil
+		if prec := env.DecimalPrecision(); prec > 0 {
+			if res, ok := decimalCompare(left, right, node.Value, prec); ok {
+				return res, nil
+			}
 		}
-		return !DeepEqual(left, right), nil
+		return DeepEqual(left, right) == (node.Value == "="), nil
 
-	case "<":
-		return compareValues(left, right, "<")
-
-	case "<=":
-		return compareValues(left, right, "<=")
-
-	case ">":
-		return compareValues(left, right, ">")
-
-	case ">=":
-		return compareValues(left, right, ">=")
+	case "<", "<=", ">", ">=":
+		if prec := env.DecimalPrecision(); prec > 0 {
+			if res, ok := decimalCompare(left, right, node.Value, prec); ok {
+				return res, nil
+			}
+		}
+		return compareValues(left, right, node.Value)
 
 	case "in":
 		return containsValue(right, left), nil

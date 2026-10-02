@@ -436,7 +436,7 @@ func fnSplit(args []any, _ any) (any, error) {
 
 	limit := -1
 	if len(args) >= 3 && args[2] != nil {
-		lf, ok := args[2].(float64)
+		lf, ok := evaluator.ToFloat64(args[2])
 		if !ok {
 			return nil, &evaluator.JSONataError{Code: "T0410", Message: "$split: argument 3 must be a number"}
 		}

@@ -341,7 +341,7 @@ func (b *evalBatch) evalSingleExpr(ctx context.Context, i, idx int, expr *Expres
 		start = time.Now()
 	}
 
-	if result, done, err := b.tryFastPaths(i, idx, start); done || err != nil {
+	if result, done, err := b.tryFastPaths(i, idx, start, expr); done || err != nil {
 		return result, err
 	}
 
@@ -351,7 +351,7 @@ func (b *evalBatch) evalSingleExpr(ctx context.Context, i, idx int, expr *Expres
 // tryFastPaths attempts pure-path, comparison, and function fast paths in order.
 // Returns (result, true, nil) on success, (nil, false, nil) to signal fallback,
 // or (nil, true, err) on error.
-func (b *evalBatch) tryFastPaths(i, idx int, start time.Time) (result any, done bool, err error) {
+func (b *evalBatch) tryFastPaths(i, idx int, start time.Time, expr *Expression) (result any, done bool, err error) {
 	// $exists treats a failed byte walk as handled false; skip when there are no bytes.
 	if b.data == nil && b.mapData == nil {
 		return nil, false, nil
@@ -363,7 +363,7 @@ func (b *evalBatch) tryFastPaths(i, idx int, start time.Time) (result any, done 
 			if b.se.metrics != nil {
 				b.se.metrics.OnEval(idx, true, time.Since(start), nil)
 			}
-			return gjsonValueToAny(&r), true, nil
+			return expr.fastValue(&r), true, nil
 		}
 	}
 

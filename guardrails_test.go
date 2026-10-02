@@ -132,3 +132,16 @@ func TestWithSequence_UnderLimitUnaffected(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestWithDecimalPrecision_Range(t *testing.T) {
+	for _, digits := range []int{-1, 15, 1001} {
+		if _, err := gnata.Compile("1", gnata.WithDecimalPrecision(digits)); err == nil {
+			t.Fatalf("expected error for precision %d", digits)
+		}
+	}
+	for _, digits := range []int{16, 78, 1000} {
+		if _, err := gnata.Compile("1", gnata.WithDecimalPrecision(digits)); err != nil {
+			t.Fatalf("precision %d: %v", digits, err)
+		}
+	}
+}

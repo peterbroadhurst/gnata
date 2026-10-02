@@ -155,7 +155,7 @@ func compareValues(left, right any, op string) (any, error) {
 	return nil, &JSONataError{Code: "T2010", Message: fmt.Sprintf("the operands of the %q operator must be numbers or strings", op)}
 }
 
-func compareOrder(a, b any) (int, error) {
+func compareOrder(a, b any, prec int) (int, error) {
 	if a == nil && b == nil {
 		return 0, nil
 	}
@@ -164,6 +164,11 @@ func compareOrder(a, b any) (int, error) {
 	}
 	if b == nil {
 		return -1, nil
+	}
+	if prec > 0 {
+		if c, ok := DecimalCmp(a, b, prec); ok {
+			return c, nil
+		}
 	}
 	an, aNum := ToFloat64(a)
 	bn, bNum := ToFloat64(b)

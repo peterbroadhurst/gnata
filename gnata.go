@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/recolabs/gnata/functions"
+	"github.com/recolabs/gnata/internal/decimal"
 	"github.com/recolabs/gnata/internal/evaluator"
 	"github.com/recolabs/gnata/internal/parser"
 	"github.com/tidwall/gjson"
@@ -47,11 +48,13 @@ type Expression struct {
 }
 
 // guardrails holds the resource limits configured via Option, matching the
-// jsonata-js 2.2 guardrails API (stack / timeout / sequence).
+// jsonata-js 2.2 guardrails API (stack / timeout / sequence), plus the
+// decimal precision.
 type guardrails struct {
-	stack    int
-	timeout  time.Duration
-	sequence int
+	stack            int
+	timeout          time.Duration
+	sequence         int
+	decimalPrecision int
 }
 
 // errGuardrailTimeout tags the context cause set by WithTimeout, so evalCore
@@ -87,6 +90,14 @@ func WithSequence(n int) Option {
 	return func(g *guardrails) { g.sequence = n }
 }
 
+// WithDecimalPrecision enables decimal arithmetic and comparison of numbers,
+// rounded half to even to digits significant digits (e.g. 78 for uint256).
+// Magnitudes are limited to the range of float64, with the same errors.
+// digits must be between 16 and 1000.
+func WithDecimalPrecision(digits int) Option {
+	return func(g *guardrails) { g.decimalPrecision = digits }
+}
+
 // Compile parses a JSONata expression string and returns an Expression.
 // The returned Expression is goroutine-safe and should be reused across calls.
 func Compile(expr string, opts ...Option) (*Expression, error) {
@@ -105,6 +116,13 @@ func Compile(expr string, opts ...Option) (*Expression, error) {
 		g = &guardrails{}
 		for _, opt := range opts {
 			opt(g)
+		}
+		if g.decimalPrecision != 0 && (g.decimalPrecision < decimal.MinPrecision || g.decimalPrecision > decimal.MaxPrecision) {
+			return nil, fmt.Errorf("gnata: WithDecimalPrecision %d must be between %d and %d digits",
+				g.decimalPrecision, decimal.MinPrecision, decimal.MaxPrecision)
+		}
+		if g.decimalPrecision > 0 {
+			fp.CmpFast, fp.FuncFast = withoutFloatFastPaths(fp.CmpFast, fp.FuncFast)
 		}
 	}
 	return &Expression{
@@ -257,6 +275,9 @@ func (e *Expression) evalCore(ctx context.Context, data any, parent *evaluator.E
 		if e.guardrails.sequence > 0 {
 			env.SetMaxSequence(e.guardrails.sequence)
 		}
+		if e.guardrails.decimalPrecision > 0 {
+			env.SetDecimalPrecision(e.guardrails.decimalPrecision)
+		}
 	}
 	env.Bind("$", data)
 	for k, v := range vars {
@@ -292,11 +313,13 @@ func (e *Expression) Eval(ctx context.Context, data any) (result any, err error)
 func (e *Expression) tryFastPathBytes(data json.RawMessage, mapData map[string]json.RawMessage) (result any, handled bool, err error) {
 	if e.fastPath && len(e.paths) == 1 {
 		if res := resolveGjsonPath(data, mapData, e.paths[0]); res.Exists() {
-			return gjsonValueToAny(&res), true, nil
+			return e.fastValue(&res), true, nil
 		}
 		var v any
 		var ok bool
 		switch {
+		case e.decimalPrecision() > 0:
+			// The walker returns numbers as float64, losing the decimal precision.
 		case data != nil:
 			v, ok = walkPureStepsBytes(e.pathSteps, data)
 		case mapData != nil:
@@ -553,6 +576,22 @@ func matchComparison(lhs *gjson.Result, c *parser.ComparisonFastPath) (match, ok
 		match = !match
 	}
 	return match, true
+}
+
+func (e *Expression) decimalPrecision() int {
+	if e.guardrails == nil {
+		return 0
+	}
+	return e.guardrails.decimalPrecision
+}
+
+// fastValue converts a pure-path result. With decimal precision enabled, numbers
+// stay json.Number so they keep full precision, as in the full evaluator.
+func (e *Expression) fastValue(r *gjson.Result) any {
+	if r.Type == gjson.Number && e.decimalPrecision() > 0 {
+		return json.Number(r.Raw)
+	}
+	return gjsonValueToAny(r)
 }
 
 // gjsonValueToAny converts a gjson.Result to a native Go value.

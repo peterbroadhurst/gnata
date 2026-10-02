@@ -43,12 +43,13 @@ type binding struct {
 // child environment (bound to "$" and little else) allocation-free beyond
 // the Environment struct itself.
 type Environment struct {
-	parent   *Environment
-	inline   [inlineBindingCap]binding
-	inlineN  int
-	bindings map[string]any // nil until inline overflows
-	calls    *callCounter   // shared call-depth counter; nil inherits from parent
-	ctx      context.Context
+	parent           *Environment
+	inline           [inlineBindingCap]binding
+	inlineN          int32
+	decimalPrecision int32          // significant digits, 0 = float64 only; set via WithDecimalPrecision and inherited by children
+	bindings         map[string]any // nil until inline overflows
+	calls            *callCounter   // shared call-depth counter; nil inherits from parent
+	ctx              context.Context
 }
 
 // NewEnvironment creates a root environment with no bindings.
@@ -63,6 +64,7 @@ func NewChildEnvironment(parent *Environment) *Environment {
 	env := &Environment{parent: parent}
 	if parent != nil {
 		env.calls = parent.callCounter()
+		env.decimalPrecision = parent.decimalPrecision
 	}
 	return env
 }
@@ -176,6 +178,17 @@ func (e *Environment) SetMaxSequence(n int) {
 	e.callCounter().maxSequence = n
 }
 
+// SetDecimalPrecision enables decimal arithmetic to digits significant digits
+// (0 = disabled) for this environment and children created after it.
+func (e *Environment) SetDecimalPrecision(digits int) {
+	e.decimalPrecision = int32(digits)
+}
+
+// DecimalPrecision returns the decimal precision in significant digits, or 0 when disabled.
+func (e *Environment) DecimalPrecision() int {
+	return int(e.decimalPrecision)
+}
+
 // CheckSequence returns a D2015 error if n exceeds the configured sequence
 // guardrail. No-op when no guardrail is set.
 func (e *Environment) CheckSequence(n int) error {
@@ -190,9 +203,10 @@ func (e *Environment) CheckSequence(n int) error {
 // but sharing the same parent and call counter references.
 func (e *Environment) Clone() *Environment {
 	child := &Environment{
-		parent: e.parent,
-		calls:  e.calls,
-		ctx:    e.ctx,
+		parent:           e.parent,
+		calls:            e.calls,
+		ctx:              e.ctx,
+		decimalPrecision: e.decimalPrecision,
 	}
 	if e.bindings != nil {
 		child.bindings = make(map[string]any, len(e.bindings))

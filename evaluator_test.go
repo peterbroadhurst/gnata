@@ -1,8 +1,10 @@
 package gnata_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/recolabs/gnata"
@@ -650,6 +652,130 @@ func TestConsArrayPathFilter(t *testing.T) {
 			got := evalExpr(t, expr, map[string]any{"tags": tC.tags})
 			if !gnata.DeepEqual(got, tC.want) {
 				t.Fatalf("got %#v (%T), want %#v (%T)", got, got, tC.want, tC.want)
+			}
+		})
+	}
+}
+
+// TestDecimalPrecision covers WithDecimalPrecision through Eval, EvalBytes and StreamEvaluator.
+// want is the JSON encoding of the result, so json.Number precision is checked exactly.
+func TestDecimalPrecision(t *testing.T) { //nolint:funlen // TDT data
+	const (
+		u127 = "170141183460469231731687303715884105728"
+		u255 = "57896044618658097711785492504343953926634992332820282019728792003956564819968"
+		u256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+	)
+	//nolint:lll // large literals
+	for _, tC := range []struct {
+		desc    string
+		expr    string
+		payload string
+		want    string
+		code    string
+	}{
+		{desc: "add_beyond_2^53", expr: "9007199254740993 + 1", want: "9007199254740994"},
+		{desc: "add_fields", expr: "a + b", payload: `{"a":9007199254740993,"b":1}`, want: "9007199254740994"},
+		{desc: "add_int64_overflow", expr: "9223372036854775807 + 1", want: "9223372036854775808"},
+		{desc: "add_decimals", expr: "0.1 + 0.2", want: "0.3"},
+		{desc: "sub_uint256", expr: "a - 1", payload: `{"a":` + u256 + `}`, want: "115792089237316195423570985008687907853269984665640564039457584007913129639934"},
+		{desc: "mul_to_2^254", expr: "a * a", payload: `{"a":` + u127 + `}`, want: "28948022309329048855892746252171976963317496166410141009864396001978282409984"},
+		{desc: "mul_rounded", expr: "a * a", payload: `{"a":` + u255 + `}`, want: "3.35195198248564927489350624955146153186984145514809834443089036093044100751839e+153"},
+		{desc: "div_terminating", expr: "10 / 4", want: "2.5"},
+		{desc: "div_rounded", expr: "1 / 3", want: "0." + strings.Repeat("3", 78)},
+		{desc: "div_big_exact", expr: "a / 2", payload: `{"a":` + u127 + `}`, want: "85070591730234615865843651857942052864"},
+		{desc: "mod_sign_follows_dividend", expr: "-7 % 3", want: "-1"},
+		{desc: "mod_decimal", expr: "7.5 % 2", want: "1.5"},
+		{desc: "mod_big", expr: "a % 10", payload: `{"a":` + u256 + `}`, want: "5"},
+		{desc: "mod_by_zero", expr: "a % 0", payload: `{"a":` + u256 + `}`, code: "D3001"},
+		{desc: "pow_integer", expr: "2 ** 100", want: "1267650600228229401496703205376"},
+		{desc: "pow_negative_integer", expr: "2 ** -2", want: "0.25"},
+		{desc: "pow_fractional_is_float", expr: "2 ** 0.5", want: "1.4142135623730951"},
+		{desc: "pow_rounded", expr: "2 ** 300", want: "2.03703597633448608626844568840937816105146839366593625063614044935438129976334e+90"},
+		{desc: "pow_overflow", expr: "2 ** 100000", code: "D1001"},
+		{desc: "unary_minus", expr: "-a", payload: `{"a":` + u256 + `}`, want: "-" + u256},
+		{desc: "negative_literal", expr: "-9007199254740993", want: "-9007199254740993"},
+		{desc: "literal_exponent", expr: "1e3 + 1", want: "1001"},
+		{desc: "literal_exponent_string", expr: "$string(1e21)", want: `"1e+21"`},
+		{desc: "literal_negative_zero", expr: "-0", want: "0"},
+		{desc: "literal_negative_zero_string", expr: "$string(-0)", want: `"0"`},
+		{desc: "literal_trailing_zero", expr: "1.50", want: "1.5"},
+		{desc: "float_operand", expr: "$count([1,2,3]) * 0.1", want: "0.3"},
+		{desc: "huge_exponent_input_unchanged", expr: "a + 1", payload: `{"a":1e999999}`, code: "T2001"},
+		{desc: "huge_digits_input_unchanged", expr: "a + 1", payload: `{"a":` + strings.Repeat("9", 1_000_000) + `}`, code: "T2001"},
+		{desc: "path_decimal", expr: "a", payload: `{"a":9007199254740993.5}`, want: `9007199254740993.5`},
+		{desc: "path_uint256", expr: "a.b", payload: `{"a":{"b":` + u256 + `}}`, want: u256},
+		{desc: "path_through_array", expr: "a.b", payload: `{"a":[{"b":9007199254740993.5},{"b":1}]}`, want: `[9007199254740993.5,1]`},
+		{desc: "path_eq_beyond_2^53", expr: "a = 9007199254740992", payload: `{"a":9007199254740993}`, want: `false`},
+		{desc: "path_eq_string", expr: `a = "x"`, payload: `{"a":"x"}`, want: `true`},
+		{desc: "path_distinct", expr: "$distinct(a)", payload: `{"a":[9007199254740993.5,9007199254740993.5]}`, want: `9007199254740993.5`},
+		{desc: "path_string", expr: "$string(a)", payload: `{"a":9007199254740993}`, want: `"9007199254740993"`},
+		{desc: "number_uint256", expr: "$number(a)", payload: `{"a":"` + u256 + `"}`, want: u256},
+		{desc: "number_canonical", expr: "$number(a)", payload: `{"a":1.10}`, want: `1.1`},
+		{desc: "number_hex_uint256", expr: `$number("0x" & $join(["ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff","ff"]))`, want: u256},
+		{desc: "number_hex_too_long", expr: `$number("0x" & a)`, payload: `{"a":"` + strings.Repeat("f", 100_000) + `"}`, code: "D3030"},
+		{desc: "number_fraction_rejected", expr: `$number("1/3")`, code: "D3030"},
+		{desc: "number_exponent_form", expr: `$number("1e80")`, want: `1e+80`},
+		{desc: "number_overflow", expr: `$number("1e400")`, code: "D3030"},
+		{desc: "abs_big", expr: "$abs(a)", payload: `{"a":-` + u256 + `}`, want: u256},
+		{desc: "floor_negative", expr: "$floor(a)", payload: `{"a":-9007199254740993.5}`, want: `-9007199254740994`},
+		{desc: "ceil_negative", expr: "$ceil(a)", payload: `{"a":-9007199254740993.5}`, want: `-9007199254740993`},
+		{desc: "round_half_even", expr: "$round(2.5) & $round(3.5) & $round(-2.5)", want: `"24-2"`},
+		{desc: "round_places", expr: "$round(a, 2)", payload: `{"a":9007199254740993.125}`, want: `9007199254740993.12`},
+		{desc: "round_negative_places", expr: "$round(a, -2)", payload: `{"a":9007199254740950}`, want: `9007199254741000`},
+		{desc: "round_huge_places_bounded", expr: "$round(1.5, 100000)", want: `1.5`},
+		{desc: "sum_beyond_2^53", expr: "$sum(a)", payload: `{"a":[9007199254740993,1]}`, want: `9007199254740994`},
+		{desc: "sum_decimals", expr: "$sum([0.1, 0.2])", want: `0.3`},
+		{desc: "sum_to_2^256", expr: "$sum(a)", payload: `{"a":[` + u256 + `,1]}`, want: `115792089237316195423570985008687907853269984665640564039457584007913129639936`},
+		{desc: "average_terminating", expr: "$average(a)", payload: `{"a":[9007199254740993,9007199254740995]}`, want: `9007199254740994`},
+		{desc: "average_rounded", expr: "$average([1, 1, 1.5])", want: `1.1` + strings.Repeat("6", 75) + `7`},
+		{desc: "add_rounds_half_even", expr: "a * 10 + 5", payload: `{"a":` + u256 + `}`, want: "1.15792089237316195423570985008687907853269984665640564039457584007913129639936e+78"},
+		{desc: "add_negligible", expr: "1 + 1e-100", want: "1"},
+		{desc: "add_beyond_2^256", expr: "a + 2 = a + 1", payload: `{"a":` + u256 + `}`, want: `false`},
+		{desc: "mul_overflow", expr: "1e308 * 10", code: "D1001"},
+		{desc: "div_underflow", expr: "1e-308 / 1e100", want: "0"},
+		{desc: "literal_underflow", expr: "1e-400", want: "0"},
+		{desc: "max_uint256", expr: "$max(a)", payload: `{"a":[` + u255 + `,` + u256 + `,1]}`, want: u256},
+		{desc: "min_beyond_2^53", expr: "$min(a)", payload: `{"a":[9007199254740993,9007199254740992]}`, want: `9007199254740992`},
+		{desc: "eq_beyond_2^53", expr: "9007199254740993 = 9007199254740992", want: `false`},
+		{desc: "neq_beyond_2^53", expr: "a != 9007199254740992", payload: `{"a":9007199254740993}`, want: `true`},
+		{desc: "eq_decimal_sum", expr: "0.1 + 0.2 = 0.3", want: `true`},
+		{desc: "eq_float_operand", expr: "$count([1,2]) = a", payload: `{"a":2.0}`, want: `true`},
+		{desc: "lt_uint256", expr: "a < " + u256, payload: `{"a":` + u255 + `}`, want: `true`},
+		{desc: "ge_uint256", expr: "a >= " + u256, payload: `{"a":` + u256 + `}`, want: `true`},
+		{desc: "order_by_beyond_2^53", expr: "a^(>$).$string()", payload: `{"a":[9007199254740993,9007199254740995,9007199254740994]}`, want: `["9007199254740995","9007199254740994","9007199254740993"]`},
+		{desc: "sort_beyond_2^53", expr: "$sort(a).$string()", payload: `{"a":[9007199254740995,9007199254740993,9007199254740994]}`, want: `["9007199254740993","9007199254740994","9007199254740995"]`},
+	} {
+		t.Run(tC.desc, func(t *testing.T) {
+			e, err := gnata.Compile(tC.expr, gnata.WithDecimalPrecision(78))
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+			payload := cmp.Or(tC.payload, "{}")
+			dec := json.NewDecoder(strings.NewReader(payload))
+			dec.UseNumber()
+			var data any
+			if err := dec.Decode(&data); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			viaEval, evalErr := e.Eval(context.Background(), data)
+			viaBytes, bytesErr := e.EvalBytes(context.Background(), json.RawMessage(payload))
+			viaStream, streamErr := gnata.NewStreamEvaluator([]*gnata.Expression{e}).EvalOne(context.Background(), json.RawMessage(payload), "k", 0)
+			for _, r := range []struct {
+				got any
+				err error
+			}{{viaEval, evalErr}, {viaBytes, bytesErr}, {viaStream, streamErr}} {
+				if tC.code != "" {
+					if r.err == nil || !strings.Contains(r.err.Error(), tC.code) {
+						t.Fatalf("expected error %s, got %v (%v)", tC.code, r.got, r.err)
+					}
+					continue
+				}
+				if r.err != nil {
+					t.Fatalf("eval: %v", r.err)
+				}
+				if b, _ := json.Marshal(r.got); string(b) != tC.want {
+					t.Fatalf("got %s (%T), want %s", b, r.got, tC.want)
+				}
 			}
 		})
 	}

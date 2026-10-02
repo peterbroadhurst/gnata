@@ -13,6 +13,28 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// floatFuncFastKinds compute or return input numbers as float64, so are left
+// to the full evaluator under WithDecimalPrecision.
+var floatFuncFastKinds = map[parser.FuncFastKind]bool{
+	parser.FuncFastNumber: true, parser.FuncFastAbs: true, parser.FuncFastFloor: true, parser.FuncFastCeil: true,
+	parser.FuncFastSum: true, parser.FuncFastMax: true, parser.FuncFastMin: true, parser.FuncFastAverage: true,
+	parser.FuncFastDistinct: true, parser.FuncFastReverse: true,
+}
+
+// withoutFloatFastPaths drops the numeric comparison and function fast paths,
+// which compare and compute in float64.
+func withoutFloatFastPaths(
+	c *parser.ComparisonFastPath, f *parser.FuncFastPath,
+) (*parser.ComparisonFastPath, *parser.FuncFastPath) {
+	if c != nil && c.RHSKind == parser.RHSKindNumber {
+		c = nil
+	}
+	if f != nil && floatFuncFastKinds[f.Kind] {
+		f = nil
+	}
+	return c, f
+}
+
 func isJSONArray(r *gjson.Result) bool {
 	return r.Type == gjson.JSON && r.Raw != "" && r.Raw[0] == '['
 }

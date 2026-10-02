@@ -63,11 +63,15 @@ Batch-evaluates multiple expressions against events. Schema-keyed `GroupPlan` ca
 
 ### Standard Library (functions/)
 
-55+ built-in JSONata functions across categorized files: `string_funcs.go`, `string_match_replace.go`, `string_format_number.go`, `string_format_integer.go`, `string_encoding.go`, `numeric_funcs.go`, `array_funcs.go`, `object_funcs.go`, `hof_funcs.go`, `boolean_funcs.go`, `datetime_funcs.go`, `datetime_format.go`, `datetime_parse.go`. All registered via `functions.RegisterAll`.
+55+ built-in JSONata functions across categorized files: `string_funcs.go`, `string_match_replace.go`, `string_format_number.go`, `string_format_integer.go`, `string_encoding.go`, `numeric_funcs.go`, `numeric_decimal.go`, `array_funcs.go`, `object_funcs.go`, `hof_funcs.go`, `boolean_funcs.go`, `datetime_funcs.go`, `datetime_format.go`, `datetime_parse.go`. All registered via `functions.RegisterAll`.
 
 ### Fast-Path Byte Evaluation (func_fast.go)
 
 Dispatch-map of `funcFastHandlers` maps each `FuncFastKind` to a standalone handler function (e.g., `evalFuncContains`, `evalFuncString`). Each handler operates directly on `gjson.Result` for zero-copy evaluation. `FuncFastRound` is intentionally absent — it requires banker's rounding handled by the full evaluator.
+
+### Decimal Precision (internal/decimal/)
+
+Opt-in via `WithDecimalPrecision(digits)`, read with `env.DecimalPrecision()` (0 = off). Operators, comparisons and numeric builtins compute in `decimal.Decimal`, with values staying `float64 | json.Number`; work is bounded by the precision, and anything out of range returns `ok=false` so the unchanged float64 path runs.
 
 ### Key Types
 

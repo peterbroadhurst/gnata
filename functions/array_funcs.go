@@ -148,6 +148,13 @@ func makeFnSort(evalFn EvalFn) evaluator.EnvAwareBuiltin {
 				}
 				return 0, nil
 			}
+		} else if prec := env.DecimalPrecision(); prec > 0 {
+			cmpFn = func(a, b any) (int, error) {
+				if c, ok := evaluator.DecimalCmp(a, b, prec); ok {
+					return c, nil
+				}
+				return defaultCompare(a, b)
+			}
 		} else {
 			cmpFn = defaultCompare
 		}
@@ -286,7 +293,7 @@ func fnFlatten(args []any, _ any) (any, error) {
 
 	depth := -1 // unlimited
 	if len(args) >= 2 && args[1] != nil {
-		df, ok := args[1].(float64)
+		df, ok := evaluator.ToFloat64(args[1])
 		if !ok {
 			return nil, &evaluator.JSONataError{Code: "T0410", Message: "$flatten: depth argument must be a number"}
 		}

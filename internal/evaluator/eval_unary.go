@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/recolabs/gnata/internal/parser"
@@ -15,6 +16,11 @@ func evalUnary(node *parser.Node, input any, env *Environment) (any, error) {
 		}
 		if val == nil {
 			return nil, nil
+		}
+		if prec := env.DecimalPrecision(); prec > 0 {
+			if res, ok := DecimalArith(json.Number("0"), val, "-", prec); ok {
+				return res, nil
+			}
 		}
 		f, ok := ToFloat64(val)
 		if !ok {

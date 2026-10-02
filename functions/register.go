@@ -39,18 +39,9 @@ var builtinFuncs = []struct {
 	{"formatInteger", fnFormatInteger},
 	{"parseInteger", fnParseInteger},
 	// ── Numeric ───────────────────────────────────────────────────────────────
-	{"number", fnNumber},
-	{"abs", fnAbs},
-	{"floor", fnFloor},
-	{"ceil", fnCeil},
-	{"round", fnRound},
 	{"power", fnPower},
 	{"sqrt", fnSqrt},
 	{"random", fnRandom},
-	{"sum", fnSum},
-	{"max", fnMax},
-	{"min", fnMin},
-	{"average", fnAverage},
 	// ── Array ─────────────────────────────────────────────────────────────────
 	{"count", fnCount},
 	{"reverse", fnReverse},
@@ -79,6 +70,23 @@ var builtinFuncs = []struct {
 	{"toMillis", fnToMillis},
 }
 
+// decimalFuncs lists numeric builtins with a decimal variant used under WithDecimalPrecision.
+var decimalFuncs = []struct {
+	name string
+	fn   func([]any, any) (any, error)
+	dec  decimalFn
+}{
+	{"number", fnNumber, decNumber},
+	{"abs", fnAbs, decAbs},
+	{"floor", fnFloor, decFloor},
+	{"ceil", fnCeil, decCeil},
+	{"round", fnRound, decRound},
+	{"sum", fnSum, decSum},
+	{"max", fnMax, decMax},
+	{"min", fnMin, decMin},
+	{"average", fnAverage, decAverage},
+}
+
 func newSignedBuiltin(fn func([]any, any) (any, error), sig string) *evaluator.SignedBuiltin {
 	parsed, _ := parser.ParseSig(sig)
 	return &evaluator.SignedBuiltin{Fn: fn, Sig: sig, ParsedSig: parsed}
@@ -89,6 +97,9 @@ func newSignedBuiltin(fn func([]any, any) (any, error), sig string) *evaluator.S
 func RegisterAll(env *evaluator.Environment, evalFn EvalFn) {
 	for _, b := range builtinFuncs {
 		env.Bind(b.name, evaluator.BuiltinFunction(b.fn))
+	}
+	for _, b := range decimalFuncs {
+		env.Bind(b.name, withDecimal(b.fn, b.dec))
 	}
 	env.Bind("append", evaluator.EnvAwareBuiltin(fnAppend))
 	env.Bind("uppercase", newSignedBuiltin(fnUppercase, "s-:s"))
